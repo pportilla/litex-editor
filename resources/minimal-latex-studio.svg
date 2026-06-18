@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Minimal LaTeX Studio">
+  <rect width="128" height="128" rx="24" fill="#1f2422"/>
+  <path d="M25 29h78c4 0 7 3 7 7v56c0 4-3 7-7 7H25c-4 0-7-3-7-7V36c0-4 3-7 7-7Z" fill="#fbfbf8"/>
+  <path d="M18 48h92v44c0 4-3 7-7 7H25c-4 0-7-3-7-7V48Z" fill="#e8ede8"/>
+  <path d="M34 70h21l-4 8H30l4-8Zm14-26h12l-14 35H34l14-35Zm18 0h11l17 35H82L66 44Zm5 26h15l4 8H75l-4-8Z" fill="#1f7a6d"/>
+  <path d="M79 36h22v7H79v-7Z" fill="#405a73"/>
+  <path d="M79 52h16v6H79v-6Zm0 12h22v6H79v-6Zm0 12h14v6H79v-6Z" fill="#606a65"/>
+</svg>

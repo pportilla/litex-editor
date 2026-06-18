@@ -1,0 +1,5 @@
+[minimal-latex-studio]
+source = "github"
+github = "pportilla/minimal-latex-studio"
+use_latest_release = true
+prefix = "v"

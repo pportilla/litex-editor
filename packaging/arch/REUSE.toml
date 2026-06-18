@@ -1,0 +1,10 @@
+version = 1
+
+[[annotations]]
+path = [
+  ".SRCINFO",
+  ".nvchecker.toml",
+  "README.md",
+]
+SPDX-FileCopyrightText = "2026 Pablo Portilla"
+SPDX-License-Identifier = "0BSD"

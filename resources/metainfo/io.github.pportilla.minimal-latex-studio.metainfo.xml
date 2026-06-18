@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.pportilla.minimal-latex-studio</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Minimal LaTeX Studio</name>
+  <summary>Native LaTeX editor, compiler, PDF previewer, and terminal</summary>
+  <developer id="io.github.pportilla">
+    <name>Pablo Portilla</name>
+  </developer>
+  <description>
+    <p>
+      Minimal LaTeX Studio is a focused native editor for writing TeX documents,
+      compiling them with local LaTeX tools, previewing the generated PDF, and
+      keeping a terminal available beside the build log.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.pportilla.minimal-latex-studio.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <url type="homepage">https://github.com/pportilla/minimal-latex-studio</url>
+  <releases>
+    <release version="0.1.0" date="2026-06-18">
+      <description>
+        <p>Initial native Qt package preparation.</p>
+      </description>
+    </release>
+  </releases>
+</component>

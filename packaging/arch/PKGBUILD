@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: 2026 Pablo Portilla
+# SPDX-License-Identifier: 0BSD
+# Maintainer: Pablo Portilla <pportilla@users.noreply.github.com>
+
+pkgname=minimal-latex-studio
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Native minimal LaTeX editor, compiler, PDF previewer, and embedded terminal'
+arch=('x86_64')
+url='https://github.com/pportilla/minimal-latex-studio'
+license=('GPL-3.0-or-later')
+depends=(
+  'gcc-libs'
+  'glibc'
+  'hicolor-icon-theme'
+  'poppler-qt6'
+  'qtermwidget'
+  'qt6-base'
+)
+makedepends=(
+  'cmake'
+  'pkgconf'
+)
+checkdepends=(
+  'appstream'
+  'desktop-file-utils'
+)
+optdepends=(
+  'texlive-bin: TeX engines and SyncTeX source/PDF navigation'
+  'texlive-binextra: latexmk and TeX Live helper tools for document builds'
+  'biber: bibliography processing for biblatex projects'
+  'texlive-latexextra: commonly used LaTeX packages'
+  'texlive-fontsextra: additional fonts for LaTeX documents'
+)
+source=(
+  "$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz"
+)
+sha256sums=(
+  'SKIP'
+)
+
+build() {
+  cmake -B build -S "$pkgname-$pkgver" \
+    -DCMAKE_BUILD_TYPE=None \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_SKIP_RPATH=ON \
+    -Wno-dev
+  cmake --build build
+}
+
+check() {
+  ctest --test-dir build --output-on-failure
+}
+
+package() {
+  DESTDIR="$pkgdir" cmake --install build
+}

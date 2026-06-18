@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Minimal LaTeX Studio
+GenericName=LaTeX Editor
+Comment=Minimal LaTeX editor, compiler, PDF previewer, and terminal
+Exec=minimal-latex-studio %F
+Icon=minimal-latex-studio
+Terminal=false
+Categories=Office;Publishing;
+MimeType=text/x-tex;application/x-tex;
+Keywords=TeX;LaTeX;PDF;Editor;Publishing;
+StartupNotify=true

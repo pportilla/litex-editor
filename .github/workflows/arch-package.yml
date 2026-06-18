@@ -1,0 +1,51 @@
+name: Arch package
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            appstream \
+            clang \
+            cmake \
+            desktop-file-utils \
+            git \
+            namcap \
+            pkgconf \
+            poppler-qt6 \
+            qtermwidget \
+            qt6-base \
+            rsync
+
+      - name: Configure and build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+          cmake --build build
+
+      - name: Test metadata and static analysis
+        run: |
+          ctest --test-dir build --output-on-failure
+          clang-tidy src/main.cpp -p build --removed-arg=-mno-direct-extern-access --quiet
+          namcap packaging/arch/PKGBUILD
+
+      - name: Build package from local source archive
+        run: |
+          mkdir -p /tmp/src/minimal-latex-studio-0.1.0 /tmp/pkg
+          rsync -a --exclude='build*' --exclude='.git' ./ /tmp/src/minimal-latex-studio-0.1.0/
+          tar -C /tmp/src -czf /tmp/pkg/minimal-latex-studio-0.1.0.tar.gz minimal-latex-studio-0.1.0
+          cp packaging/arch/PKGBUILD /tmp/pkg/PKGBUILD
+          checksum="$(sha256sum /tmp/pkg/minimal-latex-studio-0.1.0.tar.gz | awk '{print $1}')"
+          sed -i 's#"$pkgname-$pkgver.tar.gz::.*#"$pkgname-$pkgver.tar.gz"#' /tmp/pkg/PKGBUILD
+          sed -i "s/'SKIP'/'$checksum'/" /tmp/pkg/PKGBUILD
+          cd /tmp/pkg
+          makepkg -C --noconfirm
+          namcap minimal-latex-studio-*.pkg.tar.*

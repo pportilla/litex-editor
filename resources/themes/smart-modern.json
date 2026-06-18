@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "smart-modern",
+  "name": "Smart Modern",
+  "description": "A quiet native theme for long LaTeX editing sessions.",
+  "colors": {
+    "window": "#f4f6f2",
+    "panel": "#fbfbf8",
+    "panelAlt": "#edf1ec",
+    "text": "#202522",
+    "mutedText": "#5f6963",
+    "border": "#d5ddd5",
+    "accent": "#1f7a6d",
+    "accentHover": "#175f55",
+    "selection": "#d6ebe5"
+  },
+  "editor": {
+    "background": "#fbfbf8",
+    "text": "#202522",
+    "gutterBackground": "#edf1ec",
+    "gutterText": "#7a857e"
+  },
+  "syntax": {
+    "command": "#1f7a6d",
+    "keyword": "#405a73",
+    "comment": "#7d877f",
+    "math": "#8f5b2f",
+    "error": "#b0443e"
+  },
+  "terminal": {
+    "scheme": "WhiteOnBlack",
+    "background": "#000000",
+    "text": "#eeeeee"
+  },
+  "pdf": {
+    "background": "#cfd7d1"
+  }
+}
