@@ -1,6 +1,6 @@
-# Minimal LaTeX Studio
+# LiTeX
 
-A stripped-down native LaTeX editor inspired by TeXstudio. It includes:
+LiTeX is a stripped-down native LaTeX editor inspired by TeXstudio. It includes:
 
 - Qt 6 source editor with LaTeX highlighting and line numbers
 - Local LaTeX builds through `latexmk`, `pdflatex`, `xelatex`, or `lualatex`

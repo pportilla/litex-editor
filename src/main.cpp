@@ -73,8 +73,8 @@
 
 namespace {
 
-constexpr auto kOrgName = "MinimalLatexStudio";
-constexpr auto kAppName = "Minimal LaTeX Studio";
+constexpr auto kOrgName = "LiTeX";
+constexpr auto kAppName = "LiTeX";
 constexpr int kDefaultEditorFontSize = 12;
 constexpr int kDefaultTerminalFontSize = 12;
 constexpr int kMinTextFontSize = 8;
@@ -3149,7 +3149,7 @@ int main(int argc, char** argv)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        "Native minimal LaTeX editor, compiler, PDF previewer, and terminal."
+        "LiTeX is a native minimal LaTeX editor, compiler, PDF previewer, and terminal."
     );
     parser.addHelpOption();
     parser.addVersionOption();

@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Minimal LaTeX Studio
+Name=LiTeX
 GenericName=LaTeX Editor
-Comment=Minimal LaTeX editor, compiler, PDF previewer, and terminal
+Comment=Native minimal LaTeX editor, compiler, PDF previewer, and terminal
 Exec=minimal-latex-studio %F
 Icon=minimal-latex-studio
 Terminal=false

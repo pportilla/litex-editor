@@ -1,8 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Minimal LaTeX Studio">
-  <rect width="128" height="128" rx="24" fill="#1f2422"/>
-  <path d="M25 29h78c4 0 7 3 7 7v56c0 4-3 7-7 7H25c-4 0-7-3-7-7V36c0-4 3-7 7-7Z" fill="#fbfbf8"/>
-  <path d="M18 48h92v44c0 4-3 7-7 7H25c-4 0-7-3-7-7V48Z" fill="#e8ede8"/>
-  <path d="M34 70h21l-4 8H30l4-8Zm14-26h12l-14 35H34l14-35Zm18 0h11l17 35H82L66 44Zm5 26h15l4 8H75l-4-8Z" fill="#1f7a6d"/>
-  <path d="M79 36h22v7H79v-7Z" fill="#405a73"/>
-  <path d="M79 52h16v6H79v-6Zm0 12h22v6H79v-6Zm0 12h14v6H79v-6Z" fill="#606a65"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="LiTeX">
+  <defs>
+    <linearGradient id="background" x1="18" y1="8" x2="108" y2="121" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbfbf8"/>
+      <stop offset="1" stop-color="#dfe8e2"/>
+    </linearGradient>
+    <linearGradient id="feather" x1="35" y1="101" x2="93" y2="25" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f7a6d"/>
+      <stop offset="1" stop-color="#69b7a6"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="27" fill="url(#background)"/>
+  <rect x="6" y="6" width="116" height="116" rx="27" fill="none" stroke="#c9d6cf" stroke-width="2"/>
+  <text x="65" y="91" text-anchor="middle" font-family="serif" font-size="76" font-weight="700" fill="#405a73" opacity="0.18">&#8721;</text>
+  <path d="M33 101c17-9 32-21 45-37 10-12 16-25 19-40-15 3-30 11-43 24-15 15-23 32-21 53Z" fill="url(#feather)"/>
+  <path d="M33 101c17-9 32-21 45-37 10-12 16-25 19-40-15 3-30 11-43 24-15 15-23 32-21 53Z" fill="none" stroke="#175f55" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M34 100c16-12 31-25 45-42 7-9 13-19 18-31" fill="none" stroke="#fbfbf8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M50 86c-1-9 0-18 4-28m10 17c-2-10 0-21 6-32m6 18c0-8 3-17 9-26" fill="none" stroke="#d6ebe5" stroke-width="3" stroke-linecap="round"/>
+  <path d="M26 107c14-6 27-14 39-24" fill="none" stroke="#202522" stroke-width="5" stroke-linecap="round" opacity="0.24"/>
+  <path d="M26 107c14-6 27-14 39-24" fill="none" stroke="#175f55" stroke-width="2.5" stroke-linecap="round"/>
 </svg>
