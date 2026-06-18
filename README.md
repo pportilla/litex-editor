@@ -9,6 +9,7 @@ A stripped-down native LaTeX editor inspired by TeXstudio. It includes:
 - Build log tab and an embedded QTermWidget terminal tab in the lower output panel
 - Poppler-based PDF preview with fit-width and zoom controls
 - Resizable editor/PDF split, hideable PDF preview, and resizable lower panel
+- Source file watching with reload-from-disk prompts for external edits
 - Click-to-clean auxiliary LaTeX files
 - JSON-backed themes with a small Options dialog for theme, font size, line wrap, sidebar visibility, and PDF visibility
 
@@ -66,6 +67,7 @@ the JSON file from Options.
 - `Ctrl+N`: new document
 - `Ctrl+O`: open document
 - `Ctrl+S`: save document
+- `F1`: build PDF
 - `Ctrl+B`: build PDF
 - `Ctrl+Shift+K`: clean auxiliary files
 - `Ctrl++` / `Ctrl+=`: increase text size in the focused editor or terminal

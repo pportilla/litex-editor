@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFileSystemWatcher>
 #include <QFontDatabase>
 #include <QFormLayout>
 #include <QGuiApplication>
@@ -313,6 +314,104 @@ QStringList commonAuxiliaryExtensions()
     return {".aux", ".bbl",     ".bcf", ".blg",        ".dvi", ".fdb_latexmk", ".fls",
             ".idx", ".ilg",     ".ind", ".lof",        ".log", ".lot",         ".nav",
             ".out", ".run.xml", ".snm", ".synctex.gz", ".toc", ".vrb",         ".xdv"};
+}
+
+bool readUtf8TextFile(const QString& path, QString& text)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    text = QString::fromUtf8(file.readAll());
+    return true;
+}
+
+QStringList normalizedDiffLines(QString text)
+{
+    text.replace("\r\n", "\n");
+    text.replace('\r', '\n');
+    return text.split('\n');
+}
+
+QString clippedDiffLine(const QString& line)
+{
+    constexpr int kMaxLineLength = 220;
+    return line.size() <= kMaxLineLength ? line : line.left(kMaxLineLength) + " ...";
+}
+
+QString makeDiffPreview(const QString& editorText, const QString& diskText)
+{
+    constexpr int kMaxInputLines = 700;
+    constexpr int kMaxOutputLines = 900;
+
+    const QStringList editorLines = normalizedDiffLines(editorText);
+    const QStringList diskLines = normalizedDiffLines(diskText);
+    const int editorCount = std::min(static_cast<int>(editorLines.size()), kMaxInputLines);
+    const int diskCount = std::min(static_cast<int>(diskLines.size()), kMaxInputLines);
+
+    QVector<QVector<int>> lcs(editorCount + 1);
+    for (QVector<int>& row : lcs) {
+        row.resize(diskCount + 1);
+    }
+
+    for (int left = editorCount - 1; left >= 0; --left) {
+        for (int right = diskCount - 1; right >= 0; --right) {
+            if (editorLines.at(left) == diskLines.at(right)) {
+                lcs[left][right] = lcs[left + 1][right + 1] + 1;
+            } else {
+                lcs[left][right] = std::max(lcs[left + 1][right], lcs[left][right + 1]);
+            }
+        }
+    }
+
+    QStringList output;
+    output << "--- editor" << "+++ disk";
+    bool hasChanges = false;
+    bool truncated = false;
+
+    auto appendLine = [&](const QString& prefix, const QString& line) {
+        if (output.size() >= kMaxOutputLines) {
+            truncated = true;
+            return;
+        }
+        output << prefix + clippedDiffLine(line);
+    };
+
+    int left = 0;
+    int right = 0;
+    while (left < editorCount || right < diskCount) {
+        if (left < editorCount && right < diskCount &&
+            editorLines.at(left) == diskLines.at(right)) {
+            appendLine("  ", editorLines.at(left));
+            ++left;
+            ++right;
+        } else if (
+            right >= diskCount ||
+            (left < editorCount && lcs[left + 1][right] >= lcs[left][right + 1])
+        ) {
+            appendLine("- ", editorLines.at(left));
+            hasChanges = true;
+            ++left;
+        } else {
+            appendLine("+ ", diskLines.at(right));
+            hasChanges = true;
+            ++right;
+        }
+
+        if (truncated) {
+            break;
+        }
+    }
+
+    if (!hasChanges && editorLines.size() == diskLines.size()) {
+        return "No textual differences.";
+    }
+
+    if (truncated || editorLines.size() > kMaxInputLines || diskLines.size() > kMaxInputLines) {
+        output << "... diff truncated ...";
+    }
+    return output.join('\n');
 }
 
 } // namespace
@@ -1347,6 +1446,7 @@ class MainWindow final : public QMainWindow
         setWindowIcon(loadAppIcon());
         resize(1380, 860);
         createUi();
+        setupSourceWatcher();
         loadSettings();
         detectCompilers();
         applyTheme();
@@ -1408,6 +1508,8 @@ class MainWindow final : public QMainWindow
         int column = 0;
         QString error;
     };
+
+    enum class DiskChangeAction : std::uint8_t { KeepEditor, ReloadFromDisk, SaveEditor };
 
     void createUi()
     {
@@ -1474,7 +1576,7 @@ class MainWindow final : public QMainWindow
         auto* newButton = makeToolButton(bar, UiIcon::NewFile, "New file");
         auto* openButton = makeToolButton(bar, UiIcon::OpenFile, "Open file");
         auto* saveButton = makeToolButton(bar, UiIcon::Save, "Save file");
-        auto* buildButton = makeToolButton(bar, UiIcon::Build, "Build PDF");
+        auto* buildButton = makeToolButton(bar, UiIcon::Build, "Build PDF (F1)");
         auto* cleanButton = makeToolButton(bar, UiIcon::Clean, "Clean auxiliary files");
         togglePdfButton_ = makeToolButton(bar, UiIcon::Pdf, "Toggle PDF preview");
         togglePdfButton_->setCheckable(true);
@@ -1608,6 +1710,7 @@ class MainWindow final : public QMainWindow
         addShortcut(QKeySequence::New, [this] { newDocument(true); });
         addShortcut(QKeySequence::Open, [this] { openDocument(); });
         addShortcut(QKeySequence::Save, [this] { saveDocument(); });
+        addShortcut(QKeySequence(QStringLiteral("F1")), [this] { buildDocument(); });
         addShortcut(QKeySequence(QStringLiteral("Ctrl+B")), [this] { buildDocument(); });
         addShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+K")), [this] {
             cleanAuxiliaryFiles();
@@ -1627,6 +1730,20 @@ class MainWindow final : public QMainWindow
         auto* shortcut = new QShortcut(sequence, this);
         shortcut->setContext(Qt::WindowShortcut);
         connect(shortcut, &QShortcut::activated, this, [callback] { callback(); });
+    }
+
+    void setupSourceWatcher()
+    {
+        sourceWatcher_ = new QFileSystemWatcher(this);
+        sourceReloadDebounce_.setSingleShot(true);
+        sourceReloadDebounce_.setInterval(250);
+
+        connect(sourceWatcher_, &QFileSystemWatcher::fileChanged, this, [this] {
+            sourceReloadDebounce_.start();
+        });
+        connect(&sourceReloadDebounce_, &QTimer::timeout, this, [this] {
+            handleSourceChangedOnDisk();
+        });
     }
 
     enum class FontSurface : std::uint8_t { Editor, Terminal };
@@ -1957,6 +2074,7 @@ class MainWindow final : public QMainWindow
         setSidebarVisible(settings_.value("showSidebar", true).toBool());
         setPdfVisible(settings_.value("showPdf", true).toBool());
         autoReloadPdf_ = settings_.value("autoReloadPdf", true).toBool();
+        autoReloadSource_ = settings_.value("autoReloadSource", true).toBool();
     }
 
     void saveSettings()
@@ -1969,6 +2087,7 @@ class MainWindow final : public QMainWindow
         settings_.setValue("showSidebar", sidebar_->isVisible());
         settings_.setValue("showPdf", pdfPreview_->isVisible());
         settings_.setValue("autoReloadPdf", autoReloadPdf_);
+        settings_.setValue("autoReloadSource", autoReloadSource_);
         settings_.setValue("lineWrap", editor_->lineWrapMode() == QPlainTextEdit::WidgetWidth);
         settings_.setValue("geometry", saveGeometry());
         settings_.setValue("splitters/top", topSplitter_->saveState());
@@ -2189,6 +2308,8 @@ class MainWindow final : public QMainWindow
         }
 
         currentFile_.clear();
+        lastDiskText_.clear();
+        updateWatchedSourceFile();
         editor_->setPlainText(QStringLiteral(
             "\\documentclass{article}\n"
             "\\usepackage[a4paper, margin=1in]{geometry}\n"
@@ -2244,20 +2365,23 @@ class MainWindow final : public QMainWindow
 
     bool loadFile(const QString& path)
     {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString text;
+        if (!readUtf8TextFile(path, text)) {
             QMessageBox::critical(this, kAppName, "Could not open the selected file.");
             return false;
         }
 
-        currentFile_ = path;
-        editor_->setPlainText(QString::fromUtf8(file.readAll()));
+        const QFileInfo info(path);
+        currentFile_ = info.absoluteFilePath();
+        lastDiskText_ = text;
+        editor_->setPlainText(text);
         editor_->clearFolds();
         editor_->document()->setModified(false);
-        projectDirectory_ = QFileInfo(path).absolutePath();
+        projectDirectory_ = info.absolutePath();
+        updateWatchedSourceFile();
         refreshProjectFiles();
         updateTitle();
-        setStatus("Opened " + QFileInfo(path).fileName());
+        setStatus("Opened " + info.fileName());
 
         const QString pdf = outputPdfPath();
         if (QFileInfo::exists(pdf)) {
@@ -2293,16 +2417,20 @@ class MainWindow final : public QMainWindow
 
     bool saveToPath(const QString& path)
     {
+        const QString text = editor_->toPlainText();
         QFile file(path);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
             QMessageBox::critical(this, kAppName, "Could not save the current file.");
             return false;
         }
 
-        file.write(editor_->toPlainText().toUtf8());
-        currentFile_ = path;
-        projectDirectory_ = QFileInfo(path).absolutePath();
+        file.write(text.toUtf8());
+        const QFileInfo info(path);
+        currentFile_ = info.absoluteFilePath();
+        lastDiskText_ = text;
+        projectDirectory_ = info.absolutePath();
         editor_->document()->setModified(false);
+        updateWatchedSourceFile();
         updateTitle();
         refreshProjectFiles();
         if (terminal_) {
@@ -2310,6 +2438,166 @@ class MainWindow final : public QMainWindow
         }
         setStatus("Saved");
         return true;
+    }
+
+    void updateWatchedSourceFile()
+    {
+        if (!sourceWatcher_) {
+            return;
+        }
+
+        const QStringList watchedFiles = sourceWatcher_->files();
+        if (!watchedFiles.isEmpty()) {
+            sourceWatcher_->removePaths(watchedFiles);
+        }
+        watchedSourceFile_.clear();
+
+        if (currentFile_.isEmpty()) {
+            return;
+        }
+
+        const QFileInfo info(currentFile_);
+        if (!info.exists()) {
+            return;
+        }
+
+        watchedSourceFile_ = info.absoluteFilePath();
+        sourceWatcher_->addPath(watchedSourceFile_);
+    }
+
+    void handleSourceChangedOnDisk()
+    {
+        if (currentFile_.isEmpty()) {
+            return;
+        }
+
+        const QFileInfo info(currentFile_);
+        const QString path = info.absoluteFilePath();
+        QString diskText;
+        if (!readUtf8TextFile(path, diskText)) {
+            setStatus("Current file changed on disk");
+            updateWatchedSourceFile();
+            return;
+        }
+
+        if (diskText == lastDiskText_) {
+            updateWatchedSourceFile();
+            return;
+        }
+
+        const QString editorText = editor_->toPlainText();
+        if (diskText == editorText) {
+            lastDiskText_ = diskText;
+            editor_->document()->setModified(false);
+            updateTitle();
+            updateWatchedSourceFile();
+            return;
+        }
+
+        if (autoReloadSource_ && !editor_->document()->isModified() && !diskChangeDialogOpen_) {
+            reloadEditorFromDisk(diskText, "Reloaded from disk");
+            return;
+        }
+
+        if (diskChangeDialogOpen_) {
+            updateWatchedSourceFile();
+            return;
+        }
+
+        const DiskChangeAction action = askDiskChangeAction(diskText);
+        if (action == DiskChangeAction::ReloadFromDisk) {
+            reloadEditorFromDisk(diskText, "Reloaded from disk");
+            return;
+        }
+
+        if (action == DiskChangeAction::SaveEditor) {
+            saveToPath(currentFile_);
+            return;
+        }
+
+        lastDiskText_ = diskText;
+        editor_->document()->setModified(true);
+        updateTitle();
+        updateWatchedSourceFile();
+        setStatus("Keeping editor copy");
+    }
+
+    void reloadEditorFromDisk(const QString& diskText, const QString& status)
+    {
+        const int cursorPosition = editor_->textCursor().position();
+        const int verticalScroll = editor_->verticalScrollBar()->value();
+        const int horizontalScroll = editor_->horizontalScrollBar()->value();
+
+        editor_->setPlainText(diskText);
+        editor_->clearFolds();
+        QTextCursor cursor = editor_->textCursor();
+        cursor.setPosition(std::min(cursorPosition, static_cast<int>(diskText.size())));
+        editor_->setTextCursor(cursor);
+        editor_->verticalScrollBar()->setValue(
+            std::min(verticalScroll, editor_->verticalScrollBar()->maximum())
+        );
+        editor_->horizontalScrollBar()->setValue(
+            std::min(horizontalScroll, editor_->horizontalScrollBar()->maximum())
+        );
+
+        lastDiskText_ = diskText;
+        editor_->document()->setModified(false);
+        refreshProjectFiles();
+        updateTitle();
+        updateWatchedSourceFile();
+        setStatus(status);
+    }
+
+    DiskChangeAction askDiskChangeAction(const QString& diskText)
+    {
+        diskChangeDialogOpen_ = true;
+
+        QDialog dialog(this);
+        dialog.setWindowTitle("File changed on disk");
+        auto* layout = new QVBoxLayout(&dialog);
+
+        auto* message = new QLabel(
+            "The open file was changed outside the editor. Review the diff and choose which copy "
+            "to keep.",
+            &dialog
+        );
+        message->setWordWrap(true);
+
+        auto* diffPreview = new QPlainTextEdit(&dialog);
+        diffPreview->setReadOnly(true);
+        diffPreview->setLineWrapMode(QPlainTextEdit::NoWrap);
+        diffPreview->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+        diffPreview->setPlainText(makeDiffPreview(editor_->toPlainText(), diskText));
+        diffPreview->setMinimumSize(760, 420);
+
+        auto* buttons = new QDialogButtonBox(&dialog);
+        QPushButton* reloadButton =
+            buttons->addButton("Reload from Disk", QDialogButtonBox::AcceptRole);
+        QPushButton* keepButton = buttons->addButton("Keep Editor", QDialogButtonBox::RejectRole);
+        QPushButton* saveButton =
+            buttons->addButton("Save Editor", QDialogButtonBox::DestructiveRole);
+
+        DiskChangeAction action = DiskChangeAction::KeepEditor;
+        connect(reloadButton, &QPushButton::clicked, &dialog, [&] {
+            action = DiskChangeAction::ReloadFromDisk;
+            dialog.accept();
+        });
+        connect(keepButton, &QPushButton::clicked, &dialog, [&] {
+            action = DiskChangeAction::KeepEditor;
+            dialog.accept();
+        });
+        connect(saveButton, &QPushButton::clicked, &dialog, [&] {
+            action = DiskChangeAction::SaveEditor;
+            dialog.accept();
+        });
+
+        layout->addWidget(message);
+        layout->addWidget(diffPreview, 1);
+        layout->addWidget(buttons);
+        dialog.exec();
+
+        diskChangeDialogOpen_ = false;
+        return action;
     }
 
     void openProjectFolder()
@@ -2675,6 +2963,9 @@ class MainWindow final : public QMainWindow
         auto* autoReloadPdf = new QCheckBox(&dialog);
         autoReloadPdf->setChecked(autoReloadPdf_);
 
+        auto* autoReloadSource = new QCheckBox(&dialog);
+        autoReloadSource->setChecked(autoReloadSource_);
+
         auto* themePath = new QLineEdit(themePath_, &dialog);
         auto* themeBrowse = new QPushButton("Browse", &dialog);
         auto* themeRow = new QWidget(&dialog);
@@ -2688,6 +2979,7 @@ class MainWindow final : public QMainWindow
         form->addRow("Line wrap", lineWrap);
         form->addRow("Project panel", showSidebar);
         form->addRow("PDF preview", showPdf);
+        form->addRow("Auto reload source", autoReloadSource);
         form->addRow("Auto reload PDF", autoReloadPdf);
         form->addRow("Theme JSON", themeRow);
 
@@ -2718,6 +3010,7 @@ class MainWindow final : public QMainWindow
         settings_.setValue("terminalFontSize", terminalFontSize->value());
         settings_.setValue("lineWrap", lineWrap->isChecked());
         autoReloadPdf_ = autoReloadPdf->isChecked();
+        autoReloadSource_ = autoReloadSource->isChecked();
         themePath_ = themePath->text().trimmed();
 
         applyEditorFontSize(fontSize->value(), false);
@@ -2838,6 +3131,12 @@ class MainWindow final : public QMainWindow
     int editorFontSize_ = kDefaultEditorFontSize;
     int terminalFontSize_ = kDefaultTerminalFontSize;
     bool autoReloadPdf_ = true;
+    bool autoReloadSource_ = true;
+    bool diskChangeDialogOpen_ = false;
+    QString lastDiskText_;
+    QString watchedSourceFile_;
+    QFileSystemWatcher* sourceWatcher_ = nullptr;
+    QTimer sourceReloadDebounce_;
 };
 
 int main(int argc, char** argv)
@@ -2850,7 +3149,8 @@ int main(int argc, char** argv)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(
-        "Native minimal LaTeX editor, compiler, PDF previewer, and terminal.");
+        "Native minimal LaTeX editor, compiler, PDF previewer, and terminal."
+    );
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument("file", "TeX file to open.", "[file]");
