@@ -1,4 +1,4 @@
-[minimal-latex-studio]
+[litex-editor]
 source = "github"
 github = "pportilla/litex-editor"
 use_latest_release = true

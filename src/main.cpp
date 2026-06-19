@@ -123,7 +123,7 @@ enum class UiIcon : std::uint8_t {
     FitWidth
 };
 
-constexpr auto kUiIconProperty = "minimalLatexStudioIcon";
+constexpr auto kUiIconProperty = "litexEditorIcon";
 
 QPixmap drawUiIconPixmap(UiIcon icon, const QColor& color, int size = 24)
 {
@@ -299,9 +299,9 @@ QIcon loadAppIcon()
 {
     const QString appDir = QCoreApplication::applicationDirPath();
     const QStringList candidates = {
-        QDir::currentPath() + "/resources/minimal-latex-studio.svg",
-        appDir + "/../share/icons/hicolor/scalable/apps/minimal-latex-studio.svg",
-        "/usr/share/icons/hicolor/scalable/apps/minimal-latex-studio.svg"
+        QDir::currentPath() + "/resources/litex-editor.svg",
+        appDir + "/../share/icons/hicolor/scalable/apps/litex-editor.svg",
+        "/usr/share/icons/hicolor/scalable/apps/litex-editor.svg"
     };
 
     for (const QString& candidate : candidates) {
@@ -516,9 +516,9 @@ class ThemeLoader
         const QString dataPath =
             QStandardPaths::locate(QStandardPaths::AppDataLocation, "themes/smart-modern.json");
         const QStringList candidates = {
-            dataPath, appDir + "/../share/minimal-latex-studio/themes/smart-modern.json",
+            dataPath, appDir + "/../share/litex-editor/themes/smart-modern.json",
             QDir::currentPath() + "/resources/themes/smart-modern.json",
-            "/usr/share/minimal-latex-studio/themes/smart-modern.json"
+            "/usr/share/litex-editor/themes/smart-modern.json"
         };
 
         for (const QString& candidate : candidates) {

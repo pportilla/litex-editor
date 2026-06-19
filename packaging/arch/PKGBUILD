@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 # Maintainer: Pablo Portilla <pportilla@users.noreply.github.com>
 
-pkgname=minimal-latex-studio
+pkgname=litex-editor
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='Native minimal LaTeX editor, compiler, PDF previewer, and embedded terminal'

@@ -11,7 +11,7 @@ native Qt/CMake sources without generated assets or network access during build.
 - Keep the Arch package sources in `packaging/arch` under the explicit MIT
   package-source license metadata (`REUSE.toml` and `LICENSES/MIT.txt`).
 - Run `scripts/prepare-release.sh` from the tagged upstream tree. It creates
-  `dist-release/minimal-latex-studio-0.1.0.tar.gz`, updates the PKGBUILD
+  `dist-release/litex-editor-0.1.0.tar.gz`, updates the PKGBUILD
   checksum, and regenerates `.SRCINFO`.
 - Upload that tarball as the `v0.1.0` release asset.
 - Regenerate `packaging/arch/.SRCINFO` after every PKGBUILD change:
@@ -27,7 +27,7 @@ makepkg --printsrcinfo > .SRCINFO
 cd packaging/arch
 makepkg -Csr
 namcap PKGBUILD
-namcap minimal-latex-studio-*.pkg.tar.*
+namcap litex-editor-*.pkg.tar.*
 ```
 
 The package also runs CTest during `check()`. Current tests validate the desktop

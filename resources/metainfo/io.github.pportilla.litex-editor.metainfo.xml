@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.pportilla.minimal-latex-studio</id>
+  <id>io.github.pportilla.litex-editor</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
   <name>LiTeX</name>
@@ -15,7 +15,7 @@
       terminal available beside the build log.
     </p>
   </description>
-  <launchable type="desktop-id">io.github.pportilla.minimal-latex-studio.desktop</launchable>
+  <launchable type="desktop-id">io.github.pportilla.litex-editor.desktop</launchable>
   <content_rating type="oars-1.1" />
   <url type="homepage">https://github.com/pportilla/litex-editor</url>
   <releases>

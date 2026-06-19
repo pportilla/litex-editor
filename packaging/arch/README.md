@@ -8,7 +8,7 @@ builds the native Qt/CMake source tree directly.
 - Ensure the `url` in `PKGBUILD` matches the real public upstream repository.
 - Create a signed or checksummed source release tag `v0.1.0`.
 - Run `scripts/prepare-release.sh` from the upstream repository.
-- Upload `dist-release/minimal-latex-studio-0.1.0.tar.gz` as the GitHub release asset.
+- Upload `dist-release/litex-editor-0.1.0.tar.gz` as the GitHub release asset.
 - Run `makepkg --printsrcinfo > .SRCINFO` after every `PKGBUILD` change.
 - Keep `REUSE.toml` and `LICENSES/MIT.txt` with the package source files.
 - Run `makepkg -Csr` and `namcap` in a clean Arch chroot before submitting to the AUR.
@@ -21,7 +21,7 @@ builds the native Qt/CMake source tree directly.
 
 ## Current Package Shape
 
-- Builds a native `/usr/bin/minimal-latex-studio` executable with CMake.
+- Builds a native `/usr/bin/litex-editor` executable with CMake.
 - Uses Qt 6 widgets for the application shell.
 - Uses Poppler Qt 6 for PDF rendering.
 - Uses QTermWidget for the embedded terminal.

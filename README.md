@@ -44,7 +44,7 @@ sudo pacman -S --needed biber
 ```bash
 cmake -B build -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake --build build
-./build/minimal-latex-studio
+./build/litex-editor
 ```
 
 ## Install Locally
