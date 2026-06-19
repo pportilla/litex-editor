@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: MIT
 
+#include <poppler-link.h>
 #include <poppler-qt6.h>
 #include <qtermwidget.h>
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QCursor>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -23,6 +27,7 @@
 #include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QLayoutItem>
 #include <QLineEdit>
@@ -61,6 +66,7 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <QVariant>
 
@@ -68,6 +74,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -713,9 +720,8 @@ class SourceEditor final : public QPlainTextEdit
         setPalette(palette);
 
         highlighter_->applyTheme(theme);
-        columnGuideColor_ = QColor(
-            theme.accent.red(), theme.accent.green(), theme.accent.blue(), 84
-        );
+        columnGuideColor_ =
+            QColor(theme.accent.red(), theme.accent.green(), theme.accent.blue(), 84);
         lineNumberArea_->update();
         viewport()->update();
     }
@@ -1167,6 +1173,32 @@ void LineNumberArea::mousePressEvent(QMouseEvent* event)
     editor_->lineNumberAreaMousePressEvent(event);
 }
 
+struct PdfTextWord
+{
+    QString text;
+    QRectF bounds;
+    bool hasSpaceAfter = true;
+};
+
+enum class PdfLinkKind : std::uint8_t { Url, Goto, Action };
+
+struct PdfLinkTarget
+{
+    QRectF area;
+    PdfLinkKind kind = PdfLinkKind::Url;
+    QString url;
+    QString fileName;
+    int pageNumber = 0;
+    QPointF pagePoint;
+    Poppler::LinkAction::ActionType action = Poppler::LinkAction::PageFirst;
+};
+
+struct PdfSearchHit
+{
+    int pageNumber = 0;
+    QRectF rect;
+};
+
 class PdfPageLabel final : public QLabel
 {
   public:
@@ -1175,12 +1207,37 @@ class PdfPageLabel final : public QLabel
     {
         setAlignment(Qt::AlignCenter);
         setMouseTracking(true);
+        setFocusPolicy(Qt::StrongFocus);
     }
 
     void setRenderedImage(const QImage& image)
     {
         imageSize_ = image.size();
         setPixmap(QPixmap::fromImage(image));
+    }
+
+    void setTextWords(QVector<PdfTextWord> words)
+    {
+        textWords_ = std::move(words);
+        clearSelection();
+    }
+
+    void setLinks(QVector<PdfLinkTarget> links)
+    {
+        links_ = std::move(links);
+        updateCursorForPosition(mapFromGlobal(QCursor::pos()));
+    }
+
+    void setLinkActivationCallback(std::function<void(const PdfLinkTarget&)> callback)
+    {
+        linkActivationCallback_ = std::move(callback);
+    }
+
+    void setSearchHighlights(QVector<QRectF> highlights, int activeHighlight)
+    {
+        searchHighlights_ = std::move(highlights);
+        activeSearchHighlight_ = activeHighlight;
+        update();
     }
 
     void setInverseSearchCallback(std::function<void(int, double, double)> callback)
@@ -1200,15 +1257,27 @@ class PdfPageLabel final : public QLabel
         update();
     }
 
+    void clearSelection()
+    {
+        selectedText_.clear();
+        selectionActive_ = false;
+        selectionStart_ = {};
+        selectionEnd_ = {};
+        update();
+    }
+
     QPoint pointForPagePoint(const QPointF& point) const
     {
         if (pageSizePoints_.isEmpty() || imageSize_.isEmpty()) {
             return {};
         }
 
+        const QRect rect = imageRect();
         return QPoint(
-            static_cast<int>((point.x() / pageSizePoints_.width()) * imageSize_.width()),
-            static_cast<int>((point.y() / pageSizePoints_.height()) * imageSize_.height())
+            rect.left() +
+                static_cast<int>((point.x() / pageSizePoints_.width()) * imageSize_.width()),
+            rect.top() +
+                static_cast<int>((point.y() / pageSizePoints_.height()) * imageSize_.height())
         );
     }
 
@@ -1218,17 +1287,44 @@ class PdfPageLabel final : public QLabel
     }
 
   protected:
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        if (event->matches(QKeySequence::Copy) && !selectedText_.isEmpty()) {
+            QGuiApplication::clipboard()->setText(selectedText_);
+            event->accept();
+            return;
+        }
+
+        QLabel::keyPressEvent(event);
+    }
+
     void mousePressEvent(QMouseEvent* event) override
     {
+        if (event->button() == Qt::LeftButton) {
+            setFocus();
+        }
+
         if (event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::ControlModifier) &&
             inverseSearchCallback_ && !pageSizePoints_.isEmpty() && !imageSize_.isEmpty()) {
-            const QPointF pagePoint(
-                (static_cast<double>(event->position().x()) / imageSize_.width()) *
-                    pageSizePoints_.width(),
-                (static_cast<double>(event->position().y()) / imageSize_.height()) *
-                    pageSizePoints_.height()
-            );
+            const QPointF pagePoint = pagePointForWidgetPoint(event->position().toPoint());
             inverseSearchCallback_(pageNumber_, pagePoint.x(), pagePoint.y());
+            event->accept();
+            return;
+        }
+
+        if (event->button() == Qt::LeftButton) {
+            pressedLinkIndex_ = linkIndexAt(event->position().toPoint());
+            pressedPosition_ = event->position().toPoint();
+            if (pressedLinkIndex_ >= 0) {
+                event->accept();
+                return;
+            }
+
+            selectionActive_ = true;
+            selectionStart_ = event->position().toPoint();
+            selectionEnd_ = selectionStart_;
+            selectedText_.clear();
+            update();
             event->accept();
             return;
         }
@@ -1236,30 +1332,227 @@ class PdfPageLabel final : public QLabel
         QLabel::mousePressEvent(event);
     }
 
+    void mouseMoveEvent(QMouseEvent* event) override
+    {
+        if (selectionActive_) {
+            selectionEnd_ = event->position().toPoint();
+            updateSelectedTextFromSelection();
+            update();
+            event->accept();
+            return;
+        }
+
+        updateCursorForPosition(event->position().toPoint());
+        QLabel::mouseMoveEvent(event);
+    }
+
+    void mouseReleaseEvent(QMouseEvent* event) override
+    {
+        if (event->button() == Qt::LeftButton && selectionActive_) {
+            selectionEnd_ = event->position().toPoint();
+            updateSelectedTextFromSelection();
+            selectionActive_ = false;
+            update();
+            event->accept();
+            return;
+        }
+
+        if (event->button() == Qt::LeftButton && pressedLinkIndex_ >= 0) {
+            const int releasedLinkIndex = linkIndexAt(event->position().toPoint());
+            const int movement = (event->position().toPoint() - pressedPosition_).manhattanLength();
+            if (releasedLinkIndex == pressedLinkIndex_ && movement < 6 && linkActivationCallback_) {
+                linkActivationCallback_(links_.at(pressedLinkIndex_));
+                event->accept();
+            }
+            pressedLinkIndex_ = -1;
+            return;
+        }
+
+        QLabel::mouseReleaseEvent(event);
+    }
+
+    void leaveEvent(QEvent* event) override
+    {
+        if (!selectionActive_) {
+            unsetCursor();
+        }
+        QLabel::leaveEvent(event);
+    }
+
     void paintEvent(QPaintEvent* event) override
     {
         QLabel::paintEvent(event);
 
-        if (!syncPoint_) {
-            return;
-        }
-
-        const QPoint point = pointForPagePoint(*syncPoint_);
         QPainter painter(this);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        painter.setPen(QPen(QColor(31, 122, 109), 2.4));
-        painter.setBrush(QColor(31, 122, 109, 42));
-        painter.drawEllipse(point, 12, 12);
-        painter.setPen(QPen(QColor(255, 255, 255, 220), 1.2));
-        painter.drawEllipse(point, 5, 5);
+
+        paintSearchHighlights(painter);
+        paintSelection(painter);
+
+        if (syncPoint_) {
+            const QPoint point = pointForPagePoint(*syncPoint_);
+            painter.setPen(QPen(QColor(31, 122, 109), 2.4));
+            painter.setBrush(QColor(31, 122, 109, 42));
+            painter.drawEllipse(point, 12, 12);
+            painter.setPen(QPen(QColor(255, 255, 255, 220), 1.2));
+            painter.drawEllipse(point, 5, 5);
+        }
     }
 
   private:
+    QRect imageRect() const
+    {
+        if (imageSize_.isEmpty()) {
+            return rect();
+        }
+        return QRect(
+            QPoint((width() - imageSize_.width()) / 2, (height() - imageSize_.height()) / 2),
+            imageSize_
+        );
+    }
+
+    QRectF pageRectToWidgetRect(const QRectF& pageRect) const
+    {
+        if (pageSizePoints_.isEmpty() || imageSize_.isEmpty()) {
+            return {};
+        }
+
+        const QRect image = imageRect();
+        const double scaleX = imageSize_.width() / pageSizePoints_.width();
+        const double scaleY = imageSize_.height() / pageSizePoints_.height();
+        return QRectF(
+            image.left() + pageRect.left() * scaleX, image.top() + pageRect.top() * scaleY,
+            pageRect.width() * scaleX, pageRect.height() * scaleY
+        );
+    }
+
+    QRectF normalizedPageRectToWidgetRect(const QRectF& pageRect) const
+    {
+        if (imageSize_.isEmpty()) {
+            return {};
+        }
+
+        const QRect image = imageRect();
+        return QRectF(
+            image.left() + pageRect.left() * image.width(),
+            image.top() + pageRect.top() * image.height(), pageRect.width() * image.width(),
+            pageRect.height() * image.height()
+        );
+    }
+
+    QPointF pagePointForWidgetPoint(const QPoint& point) const
+    {
+        if (pageSizePoints_.isEmpty() || imageSize_.isEmpty()) {
+            return {};
+        }
+
+        const QRect image = imageRect();
+        const double x = std::clamp(
+            (point.x() - image.left()) / static_cast<double>(std::max(1, image.width())), 0.0, 1.0
+        );
+        const double y = std::clamp(
+            (point.y() - image.top()) / static_cast<double>(std::max(1, image.height())), 0.0, 1.0
+        );
+        return QPointF(x * pageSizePoints_.width(), y * pageSizePoints_.height());
+    }
+
+    QRect selectionRect() const
+    {
+        return QRect(selectionStart_, selectionEnd_).normalized();
+    }
+
+    void updateSelectedTextFromSelection()
+    {
+        const QRect rect = selectionRect();
+        if (rect.width() < 3 && rect.height() < 3) {
+            selectedText_.clear();
+            return;
+        }
+
+        QStringList selected;
+        for (const PdfTextWord& word : textWords_) {
+            if (pageRectToWidgetRect(word.bounds).intersects(rect)) {
+                selected << word.text;
+            }
+        }
+        selectedText_ = selected.join(' ').trimmed();
+    }
+
+    int linkIndexAt(const QPoint& point) const
+    {
+        for (int i = 0; i < links_.size(); ++i) {
+            if (normalizedPageRectToWidgetRect(links_.at(i).area).contains(point)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    void updateCursorForPosition(const QPoint& point)
+    {
+        if (linkIndexAt(point) >= 0) {
+            setCursor(Qt::PointingHandCursor);
+        } else {
+            unsetCursor();
+        }
+    }
+
+    void paintSearchHighlights(QPainter& painter)
+    {
+        for (int i = 0; i < searchHighlights_.size(); ++i) {
+            const QRectF rect = pageRectToWidgetRect(searchHighlights_.at(i));
+            if (!rect.isValid()) {
+                continue;
+            }
+
+            const bool active = i == activeSearchHighlight_;
+            painter.setPen(
+                QPen(active ? QColor(31, 122, 109, 210) : QColor(222, 168, 55, 190), 1.5)
+            );
+            painter.setBrush(active ? QColor(31, 122, 109, 75) : QColor(255, 210, 92, 80));
+            painter.drawRoundedRect(rect.adjusted(-2, -2, 2, 2), 2, 2);
+        }
+    }
+
+    void paintSelection(QPainter& painter)
+    {
+        if (!selectionActive_ && selectedText_.isEmpty()) {
+            return;
+        }
+
+        const QRect rect = selectionRect();
+        if (rect.width() < 3 && rect.height() < 3) {
+            return;
+        }
+
+        painter.setPen(QPen(QColor(71, 117, 168, 185), 1.0));
+        painter.setBrush(QColor(71, 117, 168, 64));
+        painter.drawRect(rect);
+
+        for (const PdfTextWord& word : textWords_) {
+            const QRectF wordRect = pageRectToWidgetRect(word.bounds);
+            if (wordRect.intersects(rect)) {
+                painter.fillRect(wordRect.adjusted(-1, -1, 1, 1), QColor(71, 117, 168, 86));
+            }
+        }
+    }
+
     int pageNumber_;
     QSizeF pageSizePoints_;
     QSize imageSize_;
+    QVector<PdfTextWord> textWords_;
+    QVector<PdfLinkTarget> links_;
+    QVector<QRectF> searchHighlights_;
     std::optional<QPointF> syncPoint_;
+    QString selectedText_;
+    QPoint selectionStart_;
+    QPoint selectionEnd_;
+    QPoint pressedPosition_;
+    int activeSearchHighlight_ = -1;
+    int pressedLinkIndex_ = -1;
+    bool selectionActive_ = false;
     std::function<void(int, double, double)> inverseSearchCallback_;
+    std::function<void(const PdfLinkTarget&)> linkActivationCallback_;
 };
 
 class PdfPreview final : public QWidget
@@ -1272,6 +1565,8 @@ class PdfPreview final : public QWidget
     {
         resizeDebounce_.setSingleShot(true);
         connect(&resizeDebounce_, &QTimer::timeout, this, [this] { render(); });
+        searchDebounce_.setSingleShot(true);
+        connect(&searchDebounce_, &QTimer::timeout, this, [this] { updateSearchResults(); });
 
         pageLayout_->setContentsMargins(24, 24, 24, 24);
         pageLayout_->setSpacing(18);
@@ -1286,6 +1581,13 @@ class PdfPreview final : public QWidget
         headerLayout->setContentsMargins(10, 6, 10, 6);
         headerLayout->setSpacing(6);
 
+        searchEdit_ = new QLineEdit(this);
+        searchEdit_->setPlaceholderText("Search PDF");
+        searchEdit_->setClearButtonEnabled(true);
+        searchEdit_->setMinimumWidth(140);
+        searchEdit_->setMaximumWidth(220);
+        auto* previousSearchButton = makeToolButton(this, UiIcon::SidebarLeft, "Previous match");
+        auto* nextSearchButton = makeToolButton(this, UiIcon::SidebarRight, "Next match");
         auto* refreshButton = makeToolButton(this, UiIcon::Refresh, "Refresh PDF");
         auto* zoomOutButton = makeToolButton(this, UiIcon::ZoomOut, "Zoom out");
         auto* zoomInButton = makeToolButton(this, UiIcon::ZoomIn, "Zoom in");
@@ -1295,6 +1597,9 @@ class PdfPreview final : public QWidget
 
         headerLayout->addWidget(new QLabel("PDF", this));
         headerLayout->addStretch();
+        headerLayout->addWidget(searchEdit_);
+        headerLayout->addWidget(previousSearchButton);
+        headerLayout->addWidget(nextSearchButton);
         headerLayout->addWidget(refreshButton);
         headerLayout->addWidget(zoomOutButton);
         headerLayout->addWidget(zoomInButton);
@@ -1307,6 +1612,12 @@ class PdfPreview final : public QWidget
         layout->addWidget(scrollArea_, 1);
         layout->addWidget(statusLabel_);
 
+        connect(searchEdit_, &QLineEdit::textChanged, this, [this] { searchDebounce_.start(220); });
+        connect(searchEdit_, &QLineEdit::returnPressed, this, [this] { goToNextSearchHit(); });
+        connect(previousSearchButton, &QToolButton::clicked, this, [this] {
+            goToPreviousSearchHit();
+        });
+        connect(nextSearchButton, &QToolButton::clicked, this, [this] { goToNextSearchHit(); });
         connect(refreshButton, &QToolButton::clicked, this, [this] { reload(); });
         connect(zoomOutButton, &QToolButton::clicked, this, [this] {
             fitWidth_ = false;
@@ -1366,25 +1677,40 @@ class PdfPreview final : public QWidget
         if (pdfPath_.isEmpty() || !QFileInfo::exists(pdfPath_)) {
             document_.reset();
             clearPages();
-            statusLabel_->setText("No PDF");
+            searchHits_.clear();
+            activeSearchIndex_ = -1;
+            baseStatusText_ = "No PDF";
+            updateStatusLabel();
             return;
         }
 
         document_ = Poppler::Document::load(pdfPath_);
         if (!document_) {
             clearPages();
-            statusLabel_->setText("PDF could not be loaded");
+            searchHits_.clear();
+            activeSearchIndex_ = -1;
+            baseStatusText_ = "PDF could not be loaded";
+            updateStatusLabel();
             return;
         }
 
         document_->setRenderHint(Poppler::Document::Antialiasing, true);
         document_->setRenderHint(Poppler::Document::TextAntialiasing, true);
         render();
+        if (!searchEdit_->text().trimmed().isEmpty()) {
+            updateSearchResults();
+        }
     }
 
     QString currentPath() const
     {
         return pdfPath_;
+    }
+
+    void focusSearch()
+    {
+        searchEdit_->setFocus();
+        searchEdit_->selectAll();
     }
 
   protected:
@@ -1397,6 +1723,95 @@ class PdfPreview final : public QWidget
     }
 
   private:
+    QVector<PdfTextWord> textWordsForPage(const Poppler::Page& page) const
+    {
+        QVector<PdfTextWord> words;
+        const auto textBoxes = page.textList();
+        words.reserve(static_cast<int>(textBoxes.size()));
+
+        for (const std::unique_ptr<Poppler::TextBox>& box : textBoxes) {
+            if (!box || box->text().trimmed().isEmpty()) {
+                continue;
+            }
+
+            words.push_back({box->text(), box->boundingBox(), box->hasSpaceAfter()});
+        }
+        return words;
+    }
+
+    QVector<PdfLinkTarget> linksForPage(const Poppler::Page& page, const QSizeF& pageSize)
+    {
+        QVector<PdfLinkTarget> targets;
+        for (const std::unique_ptr<Poppler::Link>& link : page.links()) {
+            if (!link || link->linkArea().isNull()) {
+                continue;
+            }
+
+            PdfLinkTarget target;
+            target.area = link->linkArea().normalized();
+
+            switch (link->linkType()) {
+            case Poppler::Link::Browse: {
+                const auto* browse = dynamic_cast<const Poppler::LinkBrowse*>(link.get());
+                if (!browse || browse->url().isEmpty()) {
+                    continue;
+                }
+                target.kind = PdfLinkKind::Url;
+                target.url = browse->url();
+                break;
+            }
+            case Poppler::Link::Goto: {
+                const auto* goTo = dynamic_cast<const Poppler::LinkGoto*>(link.get());
+                if (!goTo) {
+                    continue;
+                }
+
+                Poppler::LinkDestination destination = goTo->destination();
+                if (destination.pageNumber() <= 0 && !destination.destinationName().isEmpty() &&
+                    document_) {
+                    if (std::unique_ptr<Poppler::LinkDestination> resolved =
+                            document_->linkDestination(destination.destinationName())) {
+                        destination = *resolved;
+                    }
+                }
+
+                target.kind = PdfLinkKind::Goto;
+                target.fileName = goTo->fileName();
+                target.pageNumber = destination.pageNumber();
+                target.pagePoint = destinationPoint(destination, pageSize);
+                break;
+            }
+            case Poppler::Link::Action: {
+                const auto* action = dynamic_cast<const Poppler::LinkAction*>(link.get());
+                if (!action) {
+                    continue;
+                }
+                target.kind = PdfLinkKind::Action;
+                target.action = action->actionType();
+                break;
+            }
+            default:
+                continue;
+            }
+
+            targets.push_back(target);
+        }
+        return targets;
+    }
+
+    static QPointF destinationPoint(const Poppler::LinkDestination& destination, const QSizeF& page)
+    {
+        auto coordinate = [](double value, double size) {
+            const double scaled = value >= 0.0 && value <= 1.0 ? value * size : value;
+            return std::clamp(scaled, 0.0, size);
+        };
+
+        return QPointF(
+            destination.isChangeLeft() ? coordinate(destination.left(), page.width()) : 0.0,
+            destination.isChangeTop() ? coordinate(destination.top(), page.height()) : 0.0
+        );
+    }
+
     void clearPages()
     {
         pageLabels_.clear();
@@ -1407,6 +1822,107 @@ class PdfPreview final : public QWidget
             delete item;
         }
         pageLayout_->addStretch();
+    }
+
+    void updateSearchResults()
+    {
+        searchHits_.clear();
+        activeSearchIndex_ = -1;
+
+        const QString query = searchEdit_->text().trimmed();
+        if (!document_ || query.isEmpty()) {
+            applySearchHighlights();
+            updateStatusLabel();
+            return;
+        }
+
+        const Poppler::Page::SearchFlags flags =
+            Poppler::Page::IgnoreCase | Poppler::Page::AcrossLines;
+        for (int i = 0; i < document_->numPages(); ++i) {
+            std::unique_ptr<Poppler::Page> page = document_->page(i);
+            if (!page) {
+                continue;
+            }
+
+            const QList<QRectF> matches = page->search(query, flags);
+            for (const QRectF& match : matches) {
+                if (match.isValid()) {
+                    searchHits_.push_back({i + 1, match});
+                }
+            }
+        }
+
+        if (!searchHits_.isEmpty()) {
+            activeSearchIndex_ = 0;
+            scrollToSearchHit(activeSearchIndex_);
+        }
+        applySearchHighlights();
+        updateStatusLabel();
+    }
+
+    void goToNextSearchHit()
+    {
+        if (searchEdit_->text().trimmed().isEmpty()) {
+            focusSearch();
+            return;
+        }
+        if (searchHits_.isEmpty()) {
+            updateSearchResults();
+            return;
+        }
+
+        activeSearchIndex_ = (activeSearchIndex_ + 1) % static_cast<int>(searchHits_.size());
+        applySearchHighlights();
+        scrollToSearchHit(activeSearchIndex_);
+        updateStatusLabel();
+    }
+
+    void goToPreviousSearchHit()
+    {
+        if (searchEdit_->text().trimmed().isEmpty()) {
+            focusSearch();
+            return;
+        }
+        if (searchHits_.isEmpty()) {
+            updateSearchResults();
+            return;
+        }
+
+        activeSearchIndex_ = (activeSearchIndex_ + static_cast<int>(searchHits_.size()) - 1) %
+                             static_cast<int>(searchHits_.size());
+        applySearchHighlights();
+        scrollToSearchHit(activeSearchIndex_);
+        updateStatusLabel();
+    }
+
+    void applySearchHighlights()
+    {
+        for (PdfPageLabel* label : pageLabels_) {
+            QVector<QRectF> pageHits;
+            int activePageHit = -1;
+            for (int i = 0; i < searchHits_.size(); ++i) {
+                const PdfSearchHit& hit = searchHits_.at(i);
+                if (hit.pageNumber != label->pageNumber()) {
+                    continue;
+                }
+
+                if (i == activeSearchIndex_) {
+                    activePageHit = static_cast<int>(pageHits.size());
+                }
+                pageHits.push_back(hit.rect);
+            }
+            label->setSearchHighlights(pageHits, activePageHit);
+        }
+    }
+
+    void scrollToSearchHit(int index)
+    {
+        if (index < 0 || index >= searchHits_.size()) {
+            return;
+        }
+
+        const PdfSearchHit& hit = searchHits_.at(index);
+        scrollToPagePoint(hit.pageNumber, hit.rect.center());
     }
 
     void render()
@@ -1438,7 +1954,12 @@ class PdfPreview final : public QWidget
 
             auto* label = new PdfPageLabel(i + 1, points, pageContainer_);
             label->setRenderedImage(image);
+            label->setTextWords(textWordsForPage(*page));
+            label->setLinks(linksForPage(*page, points));
             label->setInverseSearchCallback(inverseSearchCallback_);
+            label->setLinkActivationCallback([this](const PdfLinkTarget& target) {
+                activateLink(target);
+            });
             label->setStyleSheet(
                 QString("QLabel { background: white; border: 1px solid %1; padding: 0; }")
                     .arg(cssColor(theme_.border))
@@ -1448,12 +1969,127 @@ class PdfPreview final : public QWidget
         }
 
         const QFileInfo info(pdfPath_);
-        statusLabel_->setText(QString("%1 page%2 - %3")
-                                  .arg(pageCount)
-                                  .arg(pageCount == 1 ? "" : "s")
-                                  .arg(info.fileName()));
+        baseStatusText_ = QString("%1 page%2 - %3")
+                              .arg(pageCount)
+                              .arg(pageCount == 1 ? "" : "s")
+                              .arg(info.fileName());
+        updateStatusLabel();
 
         applySyncPoint();
+        applySearchHighlights();
+    }
+
+    void activateLink(const PdfLinkTarget& target)
+    {
+        switch (target.kind) {
+        case PdfLinkKind::Url:
+            QDesktopServices::openUrl(QUrl::fromUserInput(target.url));
+            break;
+        case PdfLinkKind::Goto:
+            if (!target.fileName.isEmpty()) {
+                const QFileInfo linkedFile(QFileInfo(pdfPath_).absoluteDir(), target.fileName);
+                QDesktopServices::openUrl(QUrl::fromLocalFile(linkedFile.absoluteFilePath()));
+                return;
+            }
+            if (target.pageNumber > 0) {
+                scrollToPagePoint(target.pageNumber, target.pagePoint);
+            }
+            break;
+        case PdfLinkKind::Action:
+            activateAction(target.action);
+            break;
+        }
+    }
+
+    void activateAction(Poppler::LinkAction::ActionType action)
+    {
+        switch (action) {
+        case Poppler::LinkAction::PageFirst:
+            scrollToPagePoint(1, {});
+            break;
+        case Poppler::LinkAction::PagePrev:
+            scrollToPagePoint(std::max(1, currentVisiblePage() - 1), {});
+            break;
+        case Poppler::LinkAction::PageNext:
+            scrollToPagePoint(
+                std::min(document_ ? document_->numPages() : 1, currentVisiblePage() + 1), {}
+            );
+            break;
+        case Poppler::LinkAction::PageLast:
+            if (document_) {
+                scrollToPagePoint(document_->numPages(), {});
+            }
+            break;
+        case Poppler::LinkAction::Find:
+            focusSearch();
+            break;
+        default:
+            break;
+        }
+    }
+
+    int currentVisiblePage() const
+    {
+        if (pageLabels_.isEmpty()) {
+            return 1;
+        }
+
+        const int viewportCenter =
+            scrollArea_->verticalScrollBar()->value() + scrollArea_->viewport()->height() / 2;
+        int closestPage = pageLabels_.first()->pageNumber();
+        int closestDistance = std::numeric_limits<int>::max();
+
+        for (PdfPageLabel* label : pageLabels_) {
+            const QRect pageRect(label->mapTo(pageContainer_, QPoint(0, 0)), label->size());
+            const int distance = std::abs(pageRect.center().y() - viewportCenter);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestPage = label->pageNumber();
+            }
+        }
+        return closestPage;
+    }
+
+    void scrollToPagePoint(int pageNumber, const QPointF& pagePoint)
+    {
+        PdfPageLabel* target = nullptr;
+        for (PdfPageLabel* label : pageLabels_) {
+            if (label && label->pageNumber() == pageNumber) {
+                target = label;
+                break;
+            }
+        }
+
+        if (!target) {
+            return;
+        }
+
+        const QPoint point = target->pointForPagePoint(pagePoint);
+        const QPoint containerPoint = target->mapTo(pageContainer_, point);
+        scrollArea_->horizontalScrollBar()->setValue(
+            std::max(0, containerPoint.x() - scrollArea_->viewport()->width() / 2)
+        );
+        scrollArea_->verticalScrollBar()->setValue(
+            std::max(0, containerPoint.y() - scrollArea_->viewport()->height() / 4)
+        );
+    }
+
+    void updateStatusLabel()
+    {
+        const QString query = searchEdit_->text().trimmed();
+        if (!query.isEmpty()) {
+            if (searchHits_.isEmpty()) {
+                statusLabel_->setText(QString("%1 - no matches").arg(baseStatusText_));
+            } else {
+                statusLabel_->setText(QString("%1 - match %2/%3")
+                                          .arg(baseStatusText_)
+                                          .arg(activeSearchIndex_ + 1)
+                                          .arg(searchHits_.size()));
+            }
+            return;
+        }
+
+        statusLabel_->setText(baseStatusText_);
     }
 
     void applySyncPoint()
@@ -1475,28 +2111,26 @@ class PdfPreview final : public QWidget
         }
 
         target->setSyncPoint(*pendingSyncPoint_);
-        const QPoint point = target->pointForPagePoint(*pendingSyncPoint_);
-        const QPoint containerPoint = target->mapTo(pageContainer_, point);
-        scrollArea_->horizontalScrollBar()->setValue(
-            std::max(0, containerPoint.x() - scrollArea_->viewport()->width() / 2)
-        );
-        scrollArea_->verticalScrollBar()->setValue(
-            std::max(0, containerPoint.y() - scrollArea_->viewport()->height() / 2)
-        );
+        scrollToPagePoint(*pendingSyncPage_, *pendingSyncPoint_);
     }
 
     QScrollArea* scrollArea_;
     QWidget* pageContainer_;
     QVBoxLayout* pageLayout_;
     QLabel* statusLabel_;
+    QLineEdit* searchEdit_ = nullptr;
     QToolButton* fitButton_ = nullptr;
     QTimer resizeDebounce_;
+    QTimer searchDebounce_;
     std::unique_ptr<Poppler::Document> document_;
     QVector<PdfPageLabel*> pageLabels_;
+    QVector<PdfSearchHit> searchHits_;
     std::optional<int> pendingSyncPage_;
     std::optional<QPointF> pendingSyncPoint_;
     std::function<void(int, double, double)> inverseSearchCallback_;
     QString pdfPath_;
+    QString baseStatusText_ = "No PDF";
+    int activeSearchIndex_ = -1;
     double zoom_ = 1.0;
     bool fitWidth_ = true;
     AppTheme theme_;
@@ -1783,6 +2417,7 @@ class MainWindow final : public QMainWindow
         addShortcut(QKeySequence::New, [this] { newDocument(true); });
         addShortcut(QKeySequence::Open, [this] { openDocument(); });
         addShortcut(QKeySequence::Save, [this] { saveDocument(); });
+        addShortcut(QKeySequence::Find, [this] { pdfPreview_->focusSearch(); });
         addShortcut(QKeySequence(QStringLiteral("F1")), [this] { buildDocument(); });
         addShortcut(QKeySequence(QStringLiteral("Ctrl+B")), [this] { buildDocument(); });
         addShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+K")), [this] {

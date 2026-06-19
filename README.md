@@ -7,7 +7,7 @@ LiTeX is a stripped-down native LaTeX editor inspired by TeXstudio. It includes:
 - Automatic rerun detection for cross references and bibliography workflows
 - Manual force-rerun and single-pass build modes
 - Build log tab and an embedded QTermWidget terminal tab in the lower output panel
-- Poppler-based PDF preview with fit-width and zoom controls
+- Poppler-based PDF preview with fit-width, zoom, text search, text selection, and hyperlinks
 - Resizable editor/PDF split, hideable PDF preview, and resizable lower panel
 - Source file watching with reload-from-disk prompts for external edits
 - Click-to-clean auxiliary LaTeX files
@@ -67,6 +67,7 @@ the JSON file from Options.
 - `Ctrl+N`: new document
 - `Ctrl+O`: open document
 - `Ctrl+S`: save document
+- `Ctrl+F`: focus PDF search
 - `F1`: build PDF
 - `Ctrl+B`: build PDF
 - `Ctrl+Shift+K`: clean auxiliary files
