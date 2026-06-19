@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(minimal-latex-studio
     VERSION 0.1.0
     DESCRIPTION "LiTeX, a native minimal LaTeX editor, compiler, PDF previewer, and terminal"
-    HOMEPAGE_URL "https://github.com/pportilla/minimal-latex-studio"
+    HOMEPAGE_URL "https://github.com/pportilla/litex-editor"
     LANGUAGES CXX
 )
 

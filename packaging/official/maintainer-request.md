@@ -2,7 +2,7 @@
 
 Package: `minimal-latex-studio`
 
-Upstream: `https://github.com/pportilla/minimal-latex-studio`
+Upstream: `https://github.com/pportilla/litex-editor`
 
 Summary: Native Qt 6 LaTeX editor with local compiler integration, Poppler PDF
 preview, SyncTeX source/PDF navigation, and embedded QTermWidget terminal.

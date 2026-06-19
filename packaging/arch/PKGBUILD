@@ -7,7 +7,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Native minimal LaTeX editor, compiler, PDF previewer, and embedded terminal'
 arch=('x86_64')
-url='https://github.com/pportilla/minimal-latex-studio'
+url='https://github.com/pportilla/litex-editor'
 license=('MIT')
 depends=(
   'gcc-libs'

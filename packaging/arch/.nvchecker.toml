@@ -1,5 +1,5 @@
 [minimal-latex-studio]
 source = "github"
-github = "pportilla/minimal-latex-studio"
+github = "pportilla/litex-editor"
 use_latest_release = true
 prefix = "v"

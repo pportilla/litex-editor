@@ -17,7 +17,7 @@
   </description>
   <launchable type="desktop-id">io.github.pportilla.minimal-latex-studio.desktop</launchable>
   <content_rating type="oars-1.1" />
-  <url type="homepage">https://github.com/pportilla/minimal-latex-studio</url>
+  <url type="homepage">https://github.com/pportilla/litex-editor</url>
   <releases>
     <release version="0.1.0" date="2026-06-18">
       <description>

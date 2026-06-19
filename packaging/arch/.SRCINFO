@@ -2,7 +2,7 @@ pkgbase = minimal-latex-studio
 	pkgdesc = Native minimal LaTeX editor, compiler, PDF previewer, and embedded terminal
 	pkgver = 0.1.0
 	pkgrel = 1
-	url = https://github.com/pportilla/minimal-latex-studio
+	url = https://github.com/pportilla/litex-editor
 	arch = x86_64
 	license = MIT
 	checkdepends = appstream
@@ -20,7 +20,7 @@ pkgbase = minimal-latex-studio
 	optdepends = biber: bibliography processing for biblatex projects
 	optdepends = texlive-latexextra: commonly used LaTeX packages
 	optdepends = texlive-fontsextra: additional fonts for LaTeX documents
-	source = minimal-latex-studio-0.1.0.tar.gz::https://github.com/pportilla/minimal-latex-studio/releases/download/v0.1.0/minimal-latex-studio-0.1.0.tar.gz
+	source = minimal-latex-studio-0.1.0.tar.gz::https://github.com/pportilla/litex-editor/releases/download/v0.1.0/minimal-latex-studio-0.1.0.tar.gz
 	sha256sums = cfd92016c2029def08edfbd214e677855abfedb53a868361a0d7180cf4660903
 
 pkgname = minimal-latex-studio
